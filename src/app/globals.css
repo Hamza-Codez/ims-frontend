@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+/* Design tokens — docs/UIUX.md §2, §4, §10.
+   UIUX.md §10 shows a Tailwind v3 `theme.extend` block; this project is on Tailwind v4, whose
+   equivalent is CSS-first @theme. The token names and hex values are carried over unchanged. */
+@theme {
+  --color-bg: #fff7eb;
+  --color-surface-subtle: #eadfcf;
+  --color-ink: #171717;
+  --color-text-secondary: #525252;
+  --color-text-muted: #736c61;
+  --color-hairline: #d1c4af;
+  --color-hairline-strong: #b3a488;
+  --color-accent: #c2a56d;
+  --color-accent-hover: #a88e5d;
+  /* Focus rings and thin marks need >=3:1 against the cream ground; `accent` itself is only
+     2.22:1 there, so it is a FILL colour only and this darker gold carries the outline. */
+  --color-accent-strong: #8a6d2d;
+  --color-accent-wash: #fff0db;
+  --color-surface-header: #e1d6c4;
+
+  /* Direction (UIUX.md §2): inbound vs outbound stock. A different axis from `accent`, which
+     still means attention. Colour is always redundant with an icon, a +/- sign and a word. */
+  --color-inbound: #2f5d4a;
+  --color-outbound: #8c4a2f;
+
+  /* The one red (UIUX.md §2 decision, 2026-08-20). HOVER state of destructive actions only —
+     never a resting fill, never body text. White on it is 11.96:1. */
+  --color-danger: #A30000;
+
+  /* Dark chrome (UIUX.md §2/§5) — sidebar + topbar only. The content area stays white. */
+  --color-chrome: #171717;
+  --color-chrome-raised: #262626;
+  --color-chrome-hairline: #2e2e2e;
+  --color-on-chrome: #ffffff;
+  --color-on-chrome-muted: #a3a3a3;
+
+  /* §4 — kill the bubbly defaults. Never above 4px. */
+  --radius-xs: 2px;
+  --radius-sm: 2px;
+  --radius-DEFAULT: 2px;
+  --radius-md: 2px;
+  --radius-lg: 2px;
+  --radius-xl: 2px;
+  --radius-2xl: 2px;
+  --radius-3xl: 2px;
+
+  --font-sans: var(--font-plex-sans), system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+
+  /* §4 — 4px grid fixtures */
+  --spacing-row: 44px;
+  --spacing-control: 36px;
+  --spacing-topbar: 56px;
+  --spacing-sidebar: 248px;
+
+  /* §4 — shadows exist ONLY for true overlays */
+  --shadow-dropdown: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-modal: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  /* §3 — dashboard base is 14, not 16 */
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+button,
+[role="button"] {
+  cursor: pointer !important;
+}
+
+/* §3 — every quantity, SKU, order number, timestamp and ID is mono + tabular */
+.data {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* §3 — label / eyebrow */
+.eyebrow {
+  font-size: 12px;
+  line-height: 1.2;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+}
+
+/* §9 — visible keyboard focus everywhere. Uses accent-strong: plain `accent` on the cream
+   ground is 2.22:1 and would fail WCAG 1.4.11 for a focus indicator. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent-strong);
+  outline-offset: 1px;
+}
+
+/* §9 — motion 120–180ms ease-out, no bounce; honour reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* §8 — react-toastify ships rounded and colored; override it to the console look:
+   white bg, ink text, 2px radius, hairline border, 3px left accent bar by type, no glow. */
+.Toastify__toast {
+  border-radius: 2px;
+  border: 1px solid var(--color-hairline);
+  border-left: 3px solid var(--color-accent);
+  background: var(--color-ink);
+  color: var(--color-accent);
+  box-shadow: var(--shadow-dropdown);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  min-height: 0;
+  padding: 12px 14px;
+}
+.Toastify__toast--warning {
+  border-left-color: var(--color-accent);
+}
+.Toastify__progress-bar {
+  display: none;
+}
+.Toastify__close-button {
+  color: var(--color-text-secondary);
+  opacity: 1;
+}
+
+/* Style select options to use accent color on hover/focus/checked where supported */
+select option:hover,
+select option:focus,
+select option:active,
+select option:checked {
+  background: var(--color-accent) !important;
+  color: var(--color-ink) !important;
+}
