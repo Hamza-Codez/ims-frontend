@@ -30,11 +30,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* §8 — bottom-right, ~4s, restyled in globals.css (no colored rounded default) */}
         <ToastContainer
           position="bottom-right"
-          autoClose={4000}
+          autoClose={3000}
           hideProgressBar
           closeOnClick
           icon={false}
-          theme="light"
+          theme="dark"
         />
       </body>
     </html>

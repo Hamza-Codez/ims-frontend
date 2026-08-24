@@ -119,13 +119,13 @@ button,
 }
 
 /* §8 — react-toastify ships rounded and colored; override it to the console look:
-   white bg, ink text, 2px radius, hairline border, 3px left accent bar by type, no glow. */
+   black bg, white text, 2px radius, hairline border, 3px left accent bar by type, no glow. */
 .Toastify__toast {
   border-radius: 2px;
   border: 1px solid var(--color-hairline);
   border-left: 3px solid var(--color-accent);
-  background: var(--color-ink);
-  color: var(--color-accent);
+  background: #000000;
+  color: #ffffff;
   box-shadow: var(--shadow-dropdown);
   font-family: var(--font-sans);
   font-size: 14px;
@@ -136,7 +136,8 @@ button,
   border-left-color: var(--color-accent);
 }
 .Toastify__progress-bar {
-  display: none;
+  opacity: 0;
+  visibility: hidden;
 }
 .Toastify__close-button {
   color: var(--color-text-secondary);

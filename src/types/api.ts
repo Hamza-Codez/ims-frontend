@@ -96,6 +96,23 @@ export interface MovementOut {
   };
 }
 
+export interface ReturnOut {
+  id: number;
+  quantity: number;
+  reason: string | null;
+  created_at: string;
+  product: {
+    id: number;
+    sku: string;
+    name: string;
+  };
+  sales_order: {
+    id: number;
+    so_number: string;
+    customer_ref: string | null;
+  };
+}
+
 export interface PoLine {
   id: number;
   product_id: number;
@@ -116,6 +133,7 @@ export interface SoLine {
   product_id: number;
   ordered_qty: number;
   fulfilled_qty: number;
+  returned_qty: number;
 }
 
 export interface SoOut {

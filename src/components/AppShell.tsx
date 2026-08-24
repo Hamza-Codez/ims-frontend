@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   LayoutDashboard, Package, Tags, Truck, ClipboardList, ShoppingCart,
-  ScrollText, CircleUser, LogOut, Menu, X, Users, Layers,
+  ScrollText, CircleUser, LogOut, Menu, X, Users, Layers, Undo2,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { TERM, roleLabel } from "@/lib/labels";
@@ -21,6 +21,7 @@ const NAV = [
   { href: "/suppliers", label: "Suppliers", Icon: Truck },
   { href: "/purchase-orders", label: TERM.purchaseOrder, Icon: ClipboardList },
   { href: "/sales-orders", label: TERM.salesOrder, Icon: ShoppingCart },
+  { href: "/returns", label: "Returns", Icon: Undo2 },
   { href: "/inventory", label: "Inventory", Icon: ScrollText },
 ];
 

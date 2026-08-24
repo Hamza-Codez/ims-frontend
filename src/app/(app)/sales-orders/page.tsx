@@ -211,6 +211,7 @@ export default function SalesOrdersPage() {
                 <Th>Status</Th>
                 <Th numeric>Ordered</Th>
                 <Th numeric>Sent</Th>
+                <Th numeric>Returned</Th>
                 <Th>&nbsp;</Th>
               </tr>
             </thead>
@@ -218,6 +219,7 @@ export default function SalesOrdersPage() {
               {data.items.map((so) => {
                 const ordered = so.lines.reduce((a, l) => a + l.ordered_qty, 0);
                 const done = so.lines.reduce((a, l) => a + l.fulfilled_qty, 0);
+                const returned = so.lines.reduce((a, l) => a + l.returned_qty, 0);
                 return (
                   <Tr key={so.id}>
                     <Td mono>{so.so_number}</Td>
@@ -227,6 +229,7 @@ export default function SalesOrdersPage() {
                     </Td>
                     <Td numeric>{ordered}</Td>
                     <Td numeric>{done}</Td>
+                    <Td numeric>{returned}</Td>
                     <Td className="text-right">
                       <div className="flex justify-end gap-1">
                         {canWrite && so.status === "DRAFT" ? (
@@ -379,7 +382,7 @@ export default function SalesOrdersPage() {
               <option value="">Select a product</option>
               {returning?.lines.map((l) => (
                 <option key={l.id} value={l.product_id}>
-                  {sku(l.product_id)} — {l.fulfilled_qty} shipped
+                  {sku(l.product_id)} — {l.fulfilled_qty - l.returned_qty} shipped (net)
                 </option>
               ))}
             </Select>
