@@ -3,38 +3,61 @@
 import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { api } from "@/lib/api";
+import { useSubmit } from "@/lib/useSubmit";
 import { toastDone, toastApiError } from "@/lib/toast";
 import { Button } from "@/components/Button";
 import { Field, Input } from "@/components/Input";
 import { Modal } from "@/components/Modal";
 import { TableShell, Th, Td, Tr, EmptyState, SkeletonRows } from "@/components/Table";
 import { CAN, allowed, useSession } from "@/features/auth/session";
-import type { SupplierOut } from "@/types/api";
+import type { SupplierOut, PaginatedResponse } from "@/types/api";
+import { Pagination } from "@/components/Pagination";
+import { SearchBar } from "@/components/SearchBar";
+import { useSearchParams } from "next/navigation";
+
+// Same convention as the products and users pages: one empty-form constant, so opening the modal
+// and resetting after a successful create share a single definition.
+const BLANK = { name: "", email: "", phone: "" };
 
 export default function SuppliersPage() {
   const { user } = useSession();
   const canWrite = allowed(user?.role, CAN.supplierWrite);
-  const [rows, setRows] = useState<SupplierOut[] | null>(null);
+  const searchParams = useSearchParams();
+  const currentPage = parseInt(searchParams.get('page') || '1');
+  const searchQuery = searchParams.get('search') || '';
+
+  const [data, setData] = useState<PaginatedResponse<SupplierOut> | null>(null);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", phone: "" });
+  const [form, setForm] = useState(BLANK);
+  // Ref-backed: a plain `useState` guard is read from a stale closure, so three fast
+  // clicks all saw `false` and all three fired. See lib/useSubmit.ts.
+  const { busy: isSubmitting, run: runSubmit } = useSubmit();
 
   async function load() {
-    try { setRows(await api.get<SupplierOut[]>("/suppliers")); }
+    try { 
+      const params = new URLSearchParams();
+      params.set('page', currentPage.toString());
+      if (searchQuery) params.set('search', searchQuery);
+      
+      setData(await api.get<PaginatedResponse<SupplierOut>>(`/suppliers?${params.toString()}`)); 
+    }
     catch (e) { toastApiError(e, "Could not load suppliers."); }
   }
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [currentPage, searchQuery]);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
-    try {
-      await api.post("/suppliers", {
-        name: form.name,
-        email: form.email || null,
-        phone: form.phone || null,
-      });
-      toastDone("Supplier added");
-      setOpen(false); setForm({ name: "", email: "", phone: "" }); await load();
-    } catch (e) { toastApiError(e); }
+    await runSubmit(async () => {
+      try {
+        await api.post("/suppliers", {
+          name: form.name,
+          email: form.email || null,
+          phone: form.phone || null,
+        });
+        toastDone("Supplier added");
+        setOpen(false); setForm(BLANK); await load();
+      } catch (e) { toastApiError(e); }
+    });
   }
 
   return (
@@ -48,28 +71,40 @@ export default function SuppliersPage() {
         ) : null}
       </div>
 
-      {!rows ? <SkeletonRows cols={4} /> : rows.length === 0 ? (
-        <EmptyState message="No suppliers yet. Add the one you buy from most." />
+      <div className="flex items-center justify-between mb-2">
+        <SearchBar placeholder="Search by name or email..." />
+      </div>
+
+      {!data ? <SkeletonRows cols={4} /> : data.items.length === 0 ? (
+        <EmptyState 
+          message="No suppliers found." 
+          action={canWrite && !searchQuery ? <Button variant="primary" onClick={() => setOpen(true)}>Add supplier</Button> : undefined}
+        />
       ) : (
-        <TableShell>
-          <thead><tr><Th numeric>ID</Th><Th>Name</Th><Th>Email</Th><Th>Phone</Th></tr></thead>
-          <tbody>
-            {rows.map((s) => (
-              <Tr key={s.id}>
-                <Td numeric>{s.id}</Td>
-                <Td>{s.name}</Td>
-                <Td mono>{s.email ?? "—"}</Td>
-                <Td mono>{s.phone ?? "—"}</Td>
-              </Tr>
-            ))}
-          </tbody>
-        </TableShell>
+        <>
+          <TableShell>
+            <thead><tr><Th numeric>ID</Th><Th>Name</Th><Th>Email</Th><Th>Phone</Th></tr></thead>
+            <tbody>
+              {data.items.map((s) => (
+                <Tr key={s.id}>
+                  <Td numeric>{s.id}</Td>
+                  <Td>{s.name}</Td>
+                  <Td mono>{s.email ?? "—"}</Td>
+                  <Td mono>{s.phone ?? "—"}</Td>
+                </Tr>
+              ))}
+            </tbody>
+          </TableShell>
+          <Pagination total={data.total} page={data.page} pages={data.pages} />
+        </>
       )}
 
       <Modal open={open} title="Add supplier" onClose={() => setOpen(false)}
         footer={<>
-          <Button onClick={() => setOpen(false)}>Cancel</Button>
-          <Button variant="primary" form="sup-form" type="submit">Add supplier</Button>
+          <Button onClick={() => setOpen(false)} disabled={isSubmitting}>Cancel</Button>
+          <Button variant="primary" form="sup-form" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? "Adding..." : "Add supplier"}
+          </Button>
         </>}>
         <form id="sup-form" onSubmit={create} className="flex flex-col gap-4">
           <Field label="Name">

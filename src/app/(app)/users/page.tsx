@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Plus, CircleUser, KeyRound, Key } from "lucide-react";
 import { api } from "@/lib/api";
+import { useSubmit } from "@/lib/useSubmit";
 import { roleLabel } from "@/lib/labels";
 import { toastDone, toastApiError } from "@/lib/toast";
 import { Button } from "@/components/Button";
@@ -10,7 +11,10 @@ import { Field, Input, Select } from "@/components/Input";
 import { Modal } from "@/components/Modal";
 import { TableShell, Th, Td, Tr, EmptyState, SkeletonRows } from "@/components/Table";
 import { CAN, allowed, useSession } from "@/features/auth/session";
-import type { Role, UserOut, InviteCodeOut } from "@/types/api";
+import type { Role, UserOut, InviteCodeOut, PaginatedResponse } from "@/types/api";
+import { Pagination } from "@/components/Pagination";
+import { SearchBar } from "@/components/SearchBar";
+import { useSearchParams } from "next/navigation";
 
 const ROLES: Role[] = ["STOCK_CLERK", "PURCHASING_MANAGER", "INVENTORY_ADMIN", "VIEWER"];
 const BLANK = { email: "", password: "", role: "" as Role | "" };
@@ -20,7 +24,11 @@ export default function UsersPage() {
   // AZ-3: UX only. Every one of these calls is guarded to INVENTORY_ADMIN server-side regardless.
   const canManage = allowed(me?.role, CAN.userAdmin);
 
-  const [rows, setRows] = useState<UserOut[] | null>(null);
+  const searchParams = useSearchParams();
+  const currentPage = parseInt(searchParams.get('page') || '1');
+  const searchQuery = searchParams.get('search') || '';
+
+  const [data, setData] = useState<PaginatedResponse<UserOut> | null>(null);
   const [invites, setInvites] = useState<InviteCodeOut[] | null>(null);
   const [creating, setCreating] = useState(false);
   const [creatingInvite, setCreatingInvite] = useState(false);
@@ -29,55 +37,72 @@ export default function UsersPage() {
   const [resetting, setResetting] = useState<UserOut | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [deactivating, setDeactivating] = useState<UserOut | null>(null);
+  // Ref-backed guards — a plain `useState` flag is read from a stale closure, so a burst of
+  // clicks all saw `false` and all fired. See lib/useSubmit.ts. One guard per form, so
+  // generating an invite cannot disable the add-user button.
+  const createGuard = useSubmit();
+  const inviteGuard = useSubmit();
+  const passwordGuard = useSubmit();
+  const [busyRowId, setBusyRowId] = useState<number | null>(null);
 
   async function load() {
     try {
+      const params = new URLSearchParams();
+      params.set('page', currentPage.toString());
+      if (searchQuery) params.set('search', searchQuery);
+
       const [usersData, invitesData] = await Promise.all([
-        api.get<UserOut[]>("/users"),
+        api.get<PaginatedResponse<UserOut>>(`/users?${params.toString()}`),
         canManage ? api.get<InviteCodeOut[]>("/users/invites/all") : Promise.resolve([]),
       ]);
-      setRows(usersData);
+      setData(usersData);
       if (canManage) {
         setInvites(invitesData);
       }
     } catch (e) {
       toastApiError(e, "Could not load data.");
-      setRows([]);
+      setData(null);
       setInvites([]);
     }
   }
   useEffect(() => {
     void load();
-  }, [canManage]);
+  }, [canManage, currentPage, searchQuery]);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
-    try {
-      await api.post("/users", {
-        email: form.email,
-        password: form.password,
-        role: form.role,
-      });
-      toastDone("User added");
-      setCreating(false);
-      setForm(BLANK);
-      await load();
-    } catch (e) {
-      toastApiError(e);
-    }
+    await createGuard.run(async () => {
+      try {
+        await api.post("/users", {
+          email: form.email,
+          password: form.password,
+          role: form.role,
+        });
+        toastDone("User added");
+        setCreating(false);
+        setForm(BLANK);
+        await load();
+      } catch (e) {
+        toastApiError(e);
+      }
+    });
   }
 
   async function createInvite(e: React.FormEvent) {
     e.preventDefault();
-    try {
-      await api.post("/users/invites", { role: inviteRole });
-      toastDone("Invite key generated");
-      setCreatingInvite(false);
-      setInviteRole("VIEWER");
-      await load();
-    } catch (e) {
-      toastApiError(e);
-    }
+    // Each click here mints a real, usable invite key. Unguarded, three clicks handed out three
+    // credentials where the admin meant to hand out one.
+    await inviteGuard.run(async () => {
+      try {
+        await api.post("/users/invites", { role: inviteRole });
+        toastDone("Invite key generated");
+        setCreatingInvite(false);
+        setInviteRole("VIEWER");
+        await load();
+      } catch (e) {
+        toastApiError(e);
+      }
+    });
   }
 
   async function revokeInvite(id: string) {
@@ -91,6 +116,8 @@ export default function UsersPage() {
   }
 
   async function changeRole(u: UserOut, role: Role) {
+    if (busyRowId !== null) return;
+    setBusyRowId(u.id);
     try {
       await api.patch("/users/" + u.id, { role });
       toastDone("Role updated");
@@ -98,21 +125,25 @@ export default function UsersPage() {
     } catch (e) {
       // 409 LAST_ADMIN if this would leave nobody able to administer the system.
       toastApiError(e);
+    } finally {
+      setBusyRowId(null);
     }
   }
 
   async function resetPassword(e: React.FormEvent) {
     e.preventDefault();
     if (!resetting) return;
-    try {
-      // AP-3: the response never echoes the password back.
-      await api.post("/users/" + resetting.id + "/password", { password: newPassword });
-      toastDone("Password reset");
-      setResetting(null);
-      setNewPassword("");
-    } catch (e) {
-      toastApiError(e);
-    }
+    await passwordGuard.run(async () => {
+      try {
+        // AP-3: the response never echoes the password back.
+        await api.post("/users/" + resetting.id + "/password", { password: newPassword });
+        toastDone("Password reset");
+        setResetting(null);
+        setNewPassword("");
+      } catch (e) {
+        toastApiError(e);
+      }
+    });
   }
 
   async function deactivate() {
@@ -129,12 +160,16 @@ export default function UsersPage() {
   }
 
   async function reactivate(u: UserOut) {
+    if (busyRowId !== null) return;
+    setBusyRowId(u.id);
     try {
       await api.patch("/users/" + u.id, { is_active: true });
       toastDone("User reactivated");
       await load();
     } catch (e) {
       toastApiError(e);
+    } finally {
+      setBusyRowId(null);
     }
   }
 
@@ -154,88 +189,95 @@ export default function UsersPage() {
         sign-up. Deactivation keeps the account so past orders keep their author.
       </p>
 
-      {!rows ? (
+      <div className="flex items-center justify-between mt-2 mb-2">
+        <SearchBar placeholder="Search by email..." />
+      </div>
+
+      {!data ? (
         <SkeletonRows cols={4} />
-      ) : rows.length === 0 ? (
-        <EmptyState message="No users yet. Add the first one." />
+      ) : data.items.length === 0 ? (
+        <EmptyState message="No users found." />
       ) : (
-        <TableShell>
-          <thead>
-            <tr>
-              <Th numeric>ID</Th>
-              <Th>Email</Th>
-              <Th>Role</Th>
-              <Th>Status</Th>
-              <Th>&nbsp;</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((u) => {
-              const isMe = u.id === me?.id;
-              return (
-                <Tr key={u.id}>
-                  <Td numeric>{u.id}</Td>
-                  <Td mono>
-                    <span className="inline-flex items-center gap-1.5">
-                      <CircleUser size={16} strokeWidth={1.75} aria-hidden />
-                      {u.email}
-                      {isMe ? <span className="eyebrow">you</span> : null}
-                    </span>
-                  </Td>
-                  <Td>
-                    {canManage && u.is_active ? (
-                      <Select
-                        value={u.role}
-                        onChange={(e) => changeRole(u, e.target.value as Role)}
-                        aria-label={"Role for " + u.email}
-                        className="h-8"
-                      >
-                        {ROLES.map((r) => (
-                          <option key={r} value={r}>
-                            {roleLabel(r)}
-                          </option>
-                        ))}
-                      </Select>
-                    ) : (
-                      roleLabel(u.role)
-                    )}
-                  </Td>
-                  <Td>
-                    {u.is_active ? (
-                      <span className="text-sm">Active</span>
-                    ) : (
-                      <span className="text-sm text-text-muted line-through">Deactivated</span>
-                    )}
-                  </Td>
-                  <Td className="text-right">
-                    {canManage ? (
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          onClick={() => {
-                            setResetting(u);
-                            setNewPassword("");
-                          }}
+        <>
+          <TableShell>
+            <thead>
+              <tr>
+                <Th numeric>ID</Th>
+                <Th>Email</Th>
+                <Th>Role</Th>
+                <Th>Status</Th>
+                <Th>&nbsp;</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.items.map((u) => {
+                const isMe = u.id === me?.id;
+                return (
+                  <Tr key={u.id}>
+                    <Td numeric>{u.id}</Td>
+                    <Td mono>
+                      <span className="inline-flex items-center gap-1.5">
+                        <CircleUser size={16} strokeWidth={1.75} aria-hidden />
+                        {u.email}
+                        {isMe ? <span className="eyebrow">you</span> : null}
+                      </span>
+                    </Td>
+                    <Td>
+                      {canManage && u.is_active ? (
+                        <Select
+                          value={u.role}
+                          onChange={(e) => changeRole(u, e.target.value as Role)}
+                          aria-label={"Role for " + u.email}
+                          className="h-8"
                         >
-                          <KeyRound size={18} strokeWidth={1.75} /> Reset password
-                        </Button>
-                        {u.is_active ? (
-                          <Button variant="danger" onClick={() => setDeactivating(u)}>
-                            Deactivate
+                          {ROLES.map((r) => (
+                            <option key={r} value={r}>
+                              {roleLabel(r)}
+                            </option>
+                          ))}
+                        </Select>
+                      ) : (
+                        roleLabel(u.role)
+                      )}
+                    </Td>
+                    <Td>
+                      {u.is_active ? (
+                        <span className="text-sm">Active</span>
+                      ) : (
+                        <span className="text-sm text-text-muted line-through">Deactivated</span>
+                      )}
+                    </Td>
+                    <Td className="text-right">
+                      {canManage ? (
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            onClick={() => {
+                              setResetting(u);
+                              setNewPassword("");
+                            }}
+                          >
+                            <KeyRound size={18} strokeWidth={1.75} /> Reset password
                           </Button>
-                        ) : (
-                          <Button variant="secondary" onClick={() => reactivate(u)}>
-                            Reactivate
-                          </Button>
-                        )}
-                      </div>
-                    ) : null}
-                  </Td>
-                </Tr>
-              );
-            })}
-          </tbody>
-        </TableShell>
+                          {u.is_active ? (
+                            <Button variant="danger" onClick={() => setDeactivating(u)}>
+                              Deactivate
+                            </Button>
+                          ) : (
+                            <Button variant="secondary" onClick={() => reactivate(u)}>
+                              Reactivate
+                            </Button>
+                          )}
+                        </div>
+                      ) : null}
+                    </Td>
+                  </Tr>
+                );
+              })}
+            </tbody>
+          </TableShell>
+          <Pagination total={data.total} page={data.page} pages={data.pages} />
+        </>
       )}
 
       {canManage ? (
@@ -287,9 +329,9 @@ export default function UsersPage() {
         onClose={() => setCreating(false)}
         footer={
           <>
-            <Button onClick={() => setCreating(false)}>Cancel</Button>
-            <Button variant="primary" form="user-form" type="submit">
-              Add user
+            <Button onClick={() => setCreating(false)} disabled={createGuard.busy}>Cancel</Button>
+            <Button variant="primary" form="user-form" type="submit" disabled={createGuard.busy}>
+              {createGuard.busy ? "Adding..." : "Add user"}
             </Button>
           </>
         }
@@ -336,9 +378,9 @@ export default function UsersPage() {
         onClose={() => setCreatingInvite(false)}
         footer={
           <>
-            <Button onClick={() => setCreatingInvite(false)}>Cancel</Button>
-            <Button variant="primary" form="invite-form" type="submit">
-              Generate Key
+            <Button onClick={() => setCreatingInvite(false)} disabled={inviteGuard.busy}>Cancel</Button>
+            <Button variant="primary" form="invite-form" type="submit" disabled={inviteGuard.busy}>
+              {inviteGuard.busy ? "Generating..." : "Generate Key"}
             </Button>
           </>
         }
@@ -370,9 +412,9 @@ export default function UsersPage() {
         onClose={() => setResetting(null)}
         footer={
           <>
-            <Button onClick={() => setResetting(null)}>Cancel</Button>
-            <Button variant="primary" form="pw-form" type="submit">
-              Reset password
+            <Button onClick={() => setResetting(null)} disabled={passwordGuard.busy}>Cancel</Button>
+            <Button variant="primary" form="pw-form" type="submit" disabled={passwordGuard.busy}>
+              {passwordGuard.busy ? "Resetting..." : "Reset password"}
             </Button>
           </>
         }

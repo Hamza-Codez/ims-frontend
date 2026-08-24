@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Plus, PackageCheck, Ban } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, newIdempotencyKey } from "@/lib/api";
+import { useSubmit } from "@/lib/useSubmit";
 import { toastDone, toastApiError } from "@/lib/toast";
 import { ACTION, TERM } from "@/lib/labels";
 import { Button } from "@/components/Button";
@@ -11,64 +12,117 @@ import { Modal } from "@/components/Modal";
 import { StatusChip } from "@/components/StatusChip";
 import { TableShell, Th, Td, Tr, EmptyState, SkeletonRows } from "@/components/Table";
 import { CAN, allowed, useSession } from "@/features/auth/session";
-import type { PoOut, ProductOut, SupplierOut } from "@/types/api";
+import type { PoOut, ProductOut, SupplierOut, PaginatedResponse } from "@/types/api";
+import { Pagination } from "@/components/Pagination";
+import { SearchBar } from "@/components/SearchBar";
+import { useSearchParams } from "next/navigation";
 
 export default function PurchaseOrdersPage() {
   const { user } = useSession();
   const canWrite = allowed(user?.role, CAN.poWrite);
   const canReceive = allowed(user?.role, CAN.poReceive);
 
-  const [rows, setRows] = useState<PoOut[] | null>(null);
-  const [products, setProducts] = useState<ProductOut[]>([]);
-  const [suppliers, setSuppliers] = useState<SupplierOut[]>([]);
+  const searchParams = useSearchParams();
+  const currentPage = parseInt(searchParams.get('page') || '1');
+  const searchQuery = searchParams.get('search') || '';
+
+  const [data, setData] = useState<PaginatedResponse<PoOut> | null>(null);
+  const [products, setProducts] = useState<PaginatedResponse<ProductOut> | null>(null);
+  const [suppliers, setSuppliers] = useState<PaginatedResponse<SupplierOut> | null>(null);
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState({ supplier_id: "", product_id: "", ordered_qty: "1" });
   const [receiving, setReceiving] = useState<PoOut | null>(null);
   const [receiptQty, setReceiptQty] = useState<Record<number, string>>({});
   const [cancelling, setCancelling] = useState<PoOut | null>(null);
 
+  // One guard per action, so receiving on one row cannot disable the cancel button on another.
+  const createGuard = useSubmit();
+  const receiveGuard = useSubmit();
+  const cancelGuard = useSubmit();
+  const [submittingId, setSubmittingId] = useState<number | null>(null);
+
+  // Regenerated each time the form opens, so a retry of THIS order replays instead of duplicating
+  // while a genuinely new order still gets its own key.
+  const [createKey, setCreateKey] = useState(newIdempotencyKey);
+
+  function openCreate() {
+    setCreateKey(newIdempotencyKey());
+    setCreating(true);
+  }
+
   async function load() {
     try {
-      const [po, pr, su] = await Promise.all([
-        api.get<PoOut[]>("/purchase-orders"),
-        api.get<ProductOut[]>("/products"),
-        api.get<SupplierOut[]>("/suppliers"),
-      ]);
-      setRows(po);
-      setProducts(pr);
-      setSuppliers(su);
+      const params = new URLSearchParams();
+      params.set('page', currentPage.toString());
+      if (searchQuery) params.set('search', searchQuery);
+
+      setData(await api.get<PaginatedResponse<PoOut>>(`/purchase-orders?${params.toString()}`));
     } catch (e) {
       toastApiError(e, "Could not load " + TERM.purchaseOrder + ".");
     }
   }
-  useEffect(() => {
-    void load();
-  }, []);
 
-  const sku = (id: number) => products.find((p) => p.id === id)?.sku ?? String(id);
-
-  async function create(e: React.FormEvent) {
-    e.preventDefault();
+  // The dropdown lists are reference data: they do not change because an order was created, so
+  // they load once instead of on every reload after every mutation. `size`, not `limit` — the API
+  // takes page/size, so `limit=1000` was silently ignored and these selects only ever held the
+  // first 20 rows.
+  async function loadReferenceData() {
     try {
-      await api.post("/purchase-orders", {
-        supplier_id: Number(draft.supplier_id),
-        lines: [{ product_id: Number(draft.product_id), ordered_qty: Number(draft.ordered_qty) }],
-      });
-      toastDone(TERM.purchaseOrder + " created");
-      setCreating(false);
-      await load();
+      const [pr, su] = await Promise.all([
+        api.get<PaginatedResponse<ProductOut>>("/products?size=1000"),
+        api.get<PaginatedResponse<SupplierOut>>("/suppliers?size=1000"),
+      ]);
+      setProducts(pr);
+      setSuppliers(su);
     } catch (e) {
-      toastApiError(e);
+      toastApiError(e, "Could not load products and suppliers.");
     }
   }
 
+  useEffect(() => {
+    void load();
+  }, [currentPage, searchQuery]);
+
+  useEffect(() => {
+    void loadReferenceData();
+  }, []);
+
+  const sku = (id: number) => products?.items.find((p) => p.id === id)?.sku ?? String(id);
+
+  async function create(e: React.FormEvent) {
+    e.preventDefault();
+    await createGuard.run(async () => {
+      try {
+        await api.post(
+          "/purchase-orders",
+          {
+            supplier_id: Number(draft.supplier_id),
+            lines: [{ product_id: Number(draft.product_id), ordered_qty: Number(draft.ordered_qty) }],
+          },
+          createKey,
+        );
+        toastDone(TERM.purchaseOrder + " created");
+        setCreating(false);
+        await load();
+      } catch (e) {
+        toastApiError(e);
+      }
+    });
+  }
+
   async function submitPo(po: PoOut) {
+    // Row actions are guarded per row: `submittingId` disables just the button that was pressed,
+    // and the id check stops a second click on the SAME row while the first is still running.
+    if (submittingId !== null) return;
+    setSubmittingId(po.id);
     try {
       await api.post("/purchase-orders/" + po.id + "/submit");
       toastDone("Ordered");
       await load();
     } catch (e) {
       toastApiError(e);
+    } finally {
+      setSubmittingId(null);
     }
   }
 
@@ -78,28 +132,34 @@ export default function PurchaseOrdersPage() {
     const receipts = Object.entries(receiptQty)
       .filter(([, q]) => Number(q) > 0)
       .map(([line_id, q]) => ({ line_id: Number(line_id), quantity: Number(q) }));
-    try {
-      // PO-2: this writes PURCHASE_RECEIPT movements through the single write path.
-      await api.post("/purchase-orders/" + receiving.id + "/receive", { receipts });
-      toastDone(ACTION.receive.toast);
-      setReceiving(null);
-      setReceiptQty({});
-      await load();
-    } catch (e) {
-      toastApiError(e);
-    }
+    // Guarding this one matters most: an unguarded double-click posted the same receipt twice and
+    // each POST wrote its own PURCHASE_RECEIPT movement, so stock went up by twice what arrived.
+    await receiveGuard.run(async () => {
+      try {
+        // PO-2: this writes PURCHASE_RECEIPT movements through the single write path.
+        await api.post("/purchase-orders/" + receiving.id + "/receive", { receipts });
+        toastDone(ACTION.receive.toast);
+        setReceiving(null);
+        setReceiptQty({});
+        await load();
+      } catch (e) {
+        toastApiError(e);
+      }
+    });
   }
 
   async function cancel() {
     if (!cancelling) return;
-    try {
-      await api.post("/purchase-orders/" + cancelling.id + "/cancel");
-      toastDone("Order cancelled");
-      setCancelling(null);
-      await load();
-    } catch (e) {
-      toastApiError(e);
-    }
+    await cancelGuard.run(async () => {
+      try {
+        await api.post("/purchase-orders/" + cancelling.id + "/cancel");
+        toastDone("Order cancelled");
+        setCancelling(null);
+        await load();
+      } catch (e) {
+        toastApiError(e);
+      }
+    });
   }
 
   return (
@@ -107,71 +167,82 @@ export default function PurchaseOrdersPage() {
       <div className="flex items-center justify-between">
         <h2 className="text-[18px] font-semibold leading-tight">{TERM.purchaseOrder}</h2>
         {canWrite ? (
-          <Button variant="primary" onClick={() => setCreating(true)}>
+          <Button variant="primary" onClick={openCreate}>
             <Plus size={18} strokeWidth={1.75} /> New {TERM.purchaseOrder}
           </Button>
         ) : null}
       </div>
 
-      {!rows ? (
+      <div className="flex items-center justify-between mb-2">
+        <SearchBar placeholder="Search by PO number..." />
+      </div>
+
+      {!data ? (
         <SkeletonRows cols={5} />
-      ) : rows.length === 0 ? (
+      ) : data.items.length === 0 ? (
         <EmptyState message="No incoming stock yet. Create one to bring stock in." />
       ) : (
-        <TableShell>
-          <thead>
-            <tr>
-              <Th>Order</Th>
-              <Th>Status</Th>
-              <Th>Items</Th>
-              <Th numeric>Ordered</Th>
-              <Th numeric>Received</Th>
-              <Th>&nbsp;</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((po) => {
-              const ordered = po.lines.reduce((a, l) => a + l.ordered_qty, 0);
-              const received = po.lines.reduce((a, l) => a + l.received_qty, 0);
-              return (
-                <Tr key={po.id}>
-                  <Td mono>{po.po_number}</Td>
-                  <Td>
-                    <StatusChip status={po.status} />
-                  </Td>
-                  <Td mono>{po.lines.map((l) => sku(l.product_id)).join(", ")}</Td>
-                  <Td numeric>{ordered}</Td>
-                  <Td numeric>{received}</Td>
-                  <Td className="text-right">
-                    <div className="flex justify-end gap-1">
-                      {canWrite && po.status === "DRAFT" ? (
-                        <Button variant="ghost" onClick={() => submitPo(po)}>
-                          Mark Ordered
-                        </Button>
-                      ) : null}
-                      {canReceive && (po.status === "SUBMITTED" || po.status === "PARTIALLY_RECEIVED") ? (
-                        <Button
-                          variant="inbound"
-                          onClick={() => {
-                            setReceiving(po);
-                            setReceiptQty({});
-                          }}
-                        >
-                          <PackageCheck size={18} strokeWidth={1.75} /> {ACTION.receive.label}
-                        </Button>
-                      ) : null}
-                      {canWrite && po.status !== "CANCELLED" && po.status !== "RECEIVED" ? (
-                        <Button variant="danger" onClick={() => setCancelling(po)} aria-label="Cancel order">
-                          Cancel
-                        </Button>
-                      ) : null}
-                    </div>
-                  </Td>
-                </Tr>
-              );
-            })}
-          </tbody>
-        </TableShell>
+        <>
+          <TableShell>
+            <thead>
+              <tr>
+                <Th>Order</Th>
+                <Th>Status</Th>
+                <Th>Items</Th>
+                <Th numeric>Ordered</Th>
+                <Th numeric>Received</Th>
+                <Th>&nbsp;</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.items.map((po) => {
+                const ordered = po.lines.reduce((a, l) => a + l.ordered_qty, 0);
+                const received = po.lines.reduce((a, l) => a + l.received_qty, 0);
+                return (
+                  <Tr key={po.id}>
+                    <Td mono>{po.po_number}</Td>
+                    <Td>
+                      <StatusChip status={po.status} />
+                    </Td>
+                    <Td mono>{po.lines.map((l) => sku(l.product_id)).join(", ")}</Td>
+                    <Td numeric>{ordered}</Td>
+                    <Td numeric>{received}</Td>
+                    <Td className="text-right">
+                      <div className="flex justify-end gap-1">
+                        {canWrite && po.status === "DRAFT" ? (
+                          <Button
+                            variant="ghost"
+                            onClick={() => submitPo(po)}
+                            disabled={submittingId === po.id}
+                          >
+                            {submittingId === po.id ? "Ordering..." : "Mark Ordered"}
+                          </Button>
+                        ) : null}
+                        {canReceive && (po.status === "SUBMITTED" || po.status === "PARTIALLY_RECEIVED") ? (
+                          <Button
+                            variant="inbound"
+                            onClick={() => {
+                              setReceiving(po);
+                              setReceiptQty({});
+                            }}
+                          >
+                            <PackageCheck size={18} strokeWidth={1.75} /> {ACTION.receive.label}
+                          </Button>
+                        ) : null}
+                        {canWrite && po.status !== "CANCELLED" && po.status !== "RECEIVED" ? (
+                          <Button variant="danger" onClick={() => setCancelling(po)} aria-label="Cancel order">
+                            Cancel
+                          </Button>
+                        ) : null}
+                      </div>
+                    </Td>
+                  </Tr>
+                );
+              })}
+            </tbody>
+          </TableShell>
+          <Pagination total={data.total} page={data.page} pages={data.pages} />
+        </>
       )}
 
       <Modal
@@ -180,9 +251,9 @@ export default function PurchaseOrdersPage() {
         onClose={() => setCreating(false)}
         footer={
           <>
-            <Button onClick={() => setCreating(false)}>Cancel</Button>
-            <Button variant="primary" form="po-form" type="submit">
-              Create
+            <Button onClick={() => setCreating(false)} disabled={createGuard.busy}>Cancel</Button>
+            <Button variant="primary" form="po-form" type="submit" disabled={createGuard.busy}>
+              {createGuard.busy ? "Creating..." : "Create"}
             </Button>
           </>
         }
@@ -195,7 +266,7 @@ export default function PurchaseOrdersPage() {
               required
             >
               <option value="">Select a supplier</option>
-              {suppliers.map((s) => (
+              {suppliers?.items.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
                 </option>
@@ -209,7 +280,7 @@ export default function PurchaseOrdersPage() {
               required
             >
               <option value="">Select a product</option>
-              {products.map((p) => (
+              {products?.items.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.sku} — {p.name}
                 </option>
@@ -235,9 +306,9 @@ export default function PurchaseOrdersPage() {
         onClose={() => setReceiving(null)}
         footer={
           <>
-            <Button onClick={() => setReceiving(null)}>Cancel</Button>
-            <Button variant="inbound" form="recv-form" type="submit">
-              {ACTION.receive.label}
+            <Button onClick={() => setReceiving(null)} disabled={receiveGuard.busy}>Cancel</Button>
+            <Button variant="inbound" form="recv-form" type="submit" disabled={receiveGuard.busy}>
+              {receiveGuard.busy ? "Recording..." : ACTION.receive.label}
             </Button>
           </>
         }
@@ -271,9 +342,9 @@ export default function PurchaseOrdersPage() {
         onClose={() => setCancelling(null)}
         footer={
           <>
-            <Button onClick={() => setCancelling(null)}>Keep order</Button>
-            <Button variant="destructive" onClick={cancel}>
-              Cancel order
+            <Button onClick={() => setCancelling(null)} disabled={cancelGuard.busy}>Keep order</Button>
+            <Button variant="destructive" onClick={cancel} disabled={cancelGuard.busy}>
+              {cancelGuard.busy ? "Cancelling..." : "Cancel order"}
             </Button>
           </>
         }

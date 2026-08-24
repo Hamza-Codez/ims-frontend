@@ -50,11 +50,45 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * In-flight identical unsafe requests, keyed by method + path + body.
+ *
+ * The last line of defence against a double- or triple-clicked button. Each page also guards its
+ * own submit (see `useSubmit`), but those guards are per-component and easy to forget on a new
+ * screen; this one holds for every caller. While a POST is still in the air, an identical POST
+ * does not open a second request — it awaits the first one's promise, so three clicks produce one
+ * row and three identical resolutions.
+ *
+ * Scope is deliberately narrow: entries are dropped the moment the request settles, so this
+ * collapses a burst of clicks, never two deliberate identical actions a second apart. GETs are
+ * not keyed here — they are idempotent, and coalescing them would serve stale reads after a write.
+ */
+const inFlight = new Map<string, Promise<unknown>>();
+
 export async function apiFetch<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
+
+  if (!UNSAFE.has(method)) return rawFetch<T>(path, init, method);
+
+  const key = `${method} ${path} ${typeof init.body === "string" ? init.body : ""}`;
+  const running = inFlight.get(key);
+  if (running) return running as Promise<T>;
+
+  const pending = rawFetch<T>(path, init, method).finally(() => {
+    inFlight.delete(key);
+  });
+  inFlight.set(key, pending);
+  return pending;
+}
+
+async function rawFetch<T>(
+  path: string,
+  init: RequestInit,
+  method: string,
+): Promise<T> {
   const headers = new Headers(init.headers);
 
   if (init.body !== undefined && !headers.has("Content-Type")) {
@@ -70,6 +104,7 @@ export async function apiFetch<T>(
     method,
     headers,
     credentials: "include",
+    cache: "no-store",
   });
 
   if (response.status === 204) return undefined as T;
@@ -98,12 +133,31 @@ export async function apiFetch<T>(
   return payload as T;
 }
 
+/**
+ * A key that makes one POST replayable.
+ *
+ * Coalescing above only helps while the first request is still in the air. If the first POST
+ * has already reached the server when the second click lands — a slow connection, an impatient
+ * user, a flaky network the browser retried — the client cannot tell the difference and must
+ * ask the server to. Creates that carry this header return the record the first attempt made
+ * instead of making a second one.
+ *
+ * Generate ONE key per logical operation (per form opening), not per attempt, and keep it across
+ * retries of that same operation. The server only records a key on success, so retrying after a
+ * validation error with corrected input still creates the record it should.
+ */
+export function newIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export const api = {
   get: <T>(path: string) => apiFetch<T>(path),
-  post: <T>(path: string, body?: unknown) =>
+  post: <T>(path: string, body?: unknown, idempotencyKey?: string) =>
     apiFetch<T>(path, {
       method: "POST",
       body: body === undefined ? undefined : JSON.stringify(body),
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
     }),
   put: <T>(path: string, body: unknown) =>
     apiFetch<T>(path, { method: "PUT", body: JSON.stringify(body) }),

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { SlidersHorizontal } from "lucide-react";
 import { api } from "@/lib/api";
 import { ACTION, TERM } from "@/lib/labels";
@@ -13,25 +14,34 @@ import { AlertChip } from "@/components/StatusChip";
 import { TableShell, Th, Td, Tr, EmptyState, SkeletonRows } from "@/components/Table";
 import { CAN, allowed, useSession } from "@/features/auth/session";
 import { useStock } from "@/features/inventory/useStock";
-import type { ProductOut } from "@/types/api";
+import type { ProductOut, PaginatedResponse } from "@/types/api";
+import { Pagination } from "@/components/Pagination";
+import { SearchBar } from "@/components/SearchBar";
 
 export default function InventoryPage() {
   const { user } = useSession();
   const canWrite = allowed(user?.role, CAN.inventoryWrite);
-  const { rows, error, reload } = useStock();
+  const searchParams = useSearchParams();
+  const currentPage = parseInt(searchParams.get('page') || '1');
+  const searchQuery = searchParams.get('search') || '';
+
+  const { data, error, reload } = useStock(currentPage, searchQuery);
   const [products, setProducts] = useState<ProductOut[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ product_id: "", quantity: "", reason: "" });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     api
-      .get<ProductOut[]>("/products")
-      .then(setProducts)
+      .get<PaginatedResponse<ProductOut>>("/products?limit=1000")
+      .then((res) => setProducts(res.items))
       .catch(() => setProducts([]));
   }, []);
 
   async function adjust(e: React.FormEvent) {
     e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     try {
       // ADJ-1 signed and non-zero; ADJ-2 reason mandatory. Both are enforced server-side too.
       await api.post("/adjustments", {
@@ -45,6 +55,8 @@ export default function InventoryPage() {
       await reload();
     } catch (e) {
       toastApiError(e);
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -61,16 +73,21 @@ export default function InventoryPage() {
         ) : null}
       </div>
 
-      <p className="text-sm text-text-secondary">
+      <p className="text-sm text-text-secondary mb-2">
         On-hand is derived from the ledger, never edited directly. Corrections are new movements.
       </p>
 
-      {!rows ? (
+      <div className="flex items-center justify-between mb-2">
+        <SearchBar placeholder="Search by SKU or name..." />
+      </div>
+
+      {!data ? (
         <SkeletonRows cols={5} />
-      ) : rows.length === 0 ? (
+      ) : data.items.length === 0 ? (
         <EmptyState message="No products yet. Add your first product." />
       ) : (
-        <TableShell>
+        <>
+          <TableShell>
           <thead>
             <tr>
               <Th>{TERM.sku}</Th>
@@ -82,7 +99,7 @@ export default function InventoryPage() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {data.items.map((r) => (
               <Tr key={r.product_id}>
                 <Td mono>{r.sku}</Td>
                 <Td>{r.name}</Td>
@@ -103,6 +120,8 @@ export default function InventoryPage() {
             ))}
           </tbody>
         </TableShell>
+        <Pagination total={data.total} page={data.page} pages={data.pages} />
+        </>
       )}
 
       <Modal
@@ -111,9 +130,9 @@ export default function InventoryPage() {
         onClose={() => setOpen(false)}
         footer={
           <>
-            <Button onClick={() => setOpen(false)}>Cancel</Button>
-            <Button variant="primary" form="adj-form" type="submit">
-              {ACTION.adjust.label}
+            <Button onClick={() => setOpen(false)} disabled={isSubmitting}>Cancel</Button>
+            <Button variant="primary" form="adj-form" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Adjusting..." : ACTION.adjust.label}
             </Button>
           </>
         }

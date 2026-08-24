@@ -132,3 +132,11 @@ export interface ErrorEnvelope {
   code?: string;
   message: string;
 }
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  size: number;
+  pages: number;
+}

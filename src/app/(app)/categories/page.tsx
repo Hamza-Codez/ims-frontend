@@ -3,38 +3,55 @@
 import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { api } from "@/lib/api";
+import { useSubmit } from "@/lib/useSubmit";
 import { toastDone, toastApiError } from "@/lib/toast";
 import { Button } from "@/components/Button";
 import { Field, Input } from "@/components/Input";
 import { Modal } from "@/components/Modal";
 import { TableShell, Th, Td, Tr, EmptyState, SkeletonRows } from "@/components/Table";
 import { CAN, allowed, useSession } from "@/features/auth/session";
-import type { CategoryOut } from "@/types/api";
+import type { CategoryOut, PaginatedResponse } from "@/types/api";
+import { Pagination } from "@/components/Pagination";
+import { SearchBar } from "@/components/SearchBar";
+import { useSearchParams } from "next/navigation";
 
 export default function CategoriesPage() {
   const { user } = useSession();
   const canWrite = allowed(user?.role, CAN.catalogWrite);
-  const [rows, setRows] = useState<CategoryOut[] | null>(null);
+  const searchParams = useSearchParams();
+  const currentPage = parseInt(searchParams.get('page') || '1');
+  const searchQuery = searchParams.get('search') || '';
+
+  const [data, setData] = useState<PaginatedResponse<CategoryOut> | null>(null);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  // Ref-backed: a plain `useState` guard is read from a stale closure, so three fast
+  // clicks all saw `false` and all three fired. See lib/useSubmit.ts.
+  const { busy: isSubmitting, run: runSubmit } = useSubmit();
   const [confirm, setConfirm] = useState<CategoryOut | null>(null);
 
   async function load() {
     try {
-      setRows(await api.get<CategoryOut[]>("/categories"));
+      const params = new URLSearchParams();
+      params.set('page', currentPage.toString());
+      if (searchQuery) params.set('search', searchQuery);
+      
+      setData(await api.get<PaginatedResponse<CategoryOut>>(`/categories?${params.toString()}`));
     } catch (e) {
       toastApiError(e, "Could not load categories.");
     }
   }
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [currentPage, searchQuery]);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
-    try {
-      await api.post("/categories", { name });
-      toastDone("Category added");
-      setOpen(false); setName(""); await load();
-    } catch (e) { toastApiError(e); }
+    await runSubmit(async () => {
+      try {
+        await api.post("/categories", { name });
+        toastDone("Category added");
+        setOpen(false); setName(""); await load();
+      } catch (e) { toastApiError(e); }
+    });
   }
 
   async function remove() {
@@ -57,34 +74,43 @@ export default function CategoriesPage() {
         ) : null}
       </div>
 
-      {!rows ? <SkeletonRows cols={3} /> : rows.length === 0 ? (
+      <div className="flex items-center justify-between mb-2">
+        <SearchBar placeholder="Search categories..." />
+      </div>
+
+      {!data ? <SkeletonRows cols={3} /> : data.items.length === 0 ? (
         <EmptyState
-          message="No categories yet. Add your first category."
-          action={canWrite ? <Button variant="primary" onClick={() => setOpen(true)}>Add category</Button> : undefined}
+          message="No categories found."
+          action={canWrite && !searchQuery ? <Button variant="primary" onClick={() => setOpen(true)}>Add category</Button> : undefined}
         />
       ) : (
-        <TableShell>
-          <thead><tr><Th numeric>ID</Th><Th>Name</Th><Th>&nbsp;</Th></tr></thead>
-          <tbody>
-            {rows.map((c) => (
-              <Tr key={c.id}>
-                <Td numeric>{c.id}</Td>
-                <Td>{c.name}</Td>
-                <Td className="text-right">
-                  {canWrite ? (
-                    <Button variant="danger" onClick={() => setConfirm(c)}>Remove</Button>
-                  ) : null}
-                </Td>
-              </Tr>
-            ))}
-          </tbody>
-        </TableShell>
+        <>
+          <TableShell>
+            <thead><tr><Th numeric>ID</Th><Th>Name</Th><Th>&nbsp;</Th></tr></thead>
+            <tbody>
+              {data.items.map((c) => (
+                <Tr key={c.id}>
+                  <Td numeric>{c.id}</Td>
+                  <Td>{c.name}</Td>
+                  <Td className="text-right">
+                    {canWrite ? (
+                      <Button variant="danger" onClick={() => setConfirm(c)}>Remove</Button>
+                    ) : null}
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </TableShell>
+          <Pagination total={data.total} page={data.page} pages={data.pages} />
+        </>
       )}
 
       <Modal open={open} title="Add category" onClose={() => setOpen(false)}
         footer={<>
-          <Button onClick={() => setOpen(false)}>Cancel</Button>
-          <Button variant="primary" form="cat-form" type="submit">Add category</Button>
+          <Button onClick={() => setOpen(false)} disabled={isSubmitting}>Cancel</Button>
+          <Button variant="primary" form="cat-form" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? "Adding..." : "Add category"}
+          </Button>
         </>}>
         <form id="cat-form" onSubmit={create} className="flex flex-col gap-4">
           <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} required /></Field>

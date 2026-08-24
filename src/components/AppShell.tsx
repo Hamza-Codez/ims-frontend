@@ -99,7 +99,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-[100dvh] w-full overflow-hidden bg-bg">
       <aside className="hidden w-[248px] shrink-0 flex-col bg-chrome lg:flex">
         <div className="flex h-14 shrink-0 items-center gap-2 border-b border-chrome-hairline px-4">
           <Layers size={20} className="text-accent" />
