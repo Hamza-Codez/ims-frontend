@@ -98,7 +98,7 @@ export function Select({ className = "", children, value, onChange, ...rest }: S
             <div
               key={idx}
               className={`cursor-pointer px-2.5 py-2 text-sm ${
-                opt.value === value ? "bg-accent-wash text-ink font-medium" : "text-ink hover:bg-accent hover:text-ink"
+                opt.value === value ? "bg-accent text-ink font-medium" : "text-ink hover:bg-accent hover:text-ink"
               }`}
               onClick={() => triggerChange(opt.value)}
             >
