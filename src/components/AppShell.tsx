@@ -103,7 +103,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex h-[100dvh] w-full overflow-hidden bg-bg">
       <aside className="hidden w-[248px] shrink-0 flex-col bg-chrome lg:flex">
         <div className="flex h-14 shrink-0 items-center gap-2 border-b border-chrome-hairline px-4">
-          <img src="/assets/brand_logo.png" alt="Brand Logo" className="h-8 object-contain" />
+          <img src="/assets/brand_logo.png" alt="Brand Logo" className="h-12 w-auto object-contain" />
         </div>
         <div className="flex-1 overflow-y-auto">{nav}</div>
         {userProfile}
@@ -115,7 +115,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <aside className="absolute left-0 top-0 flex h-full w-[248px] flex-col bg-chrome">
             <div className="flex h-14 shrink-0 items-center justify-between border-b border-chrome-hairline px-4">
               <div className="flex items-center gap-2">
-                <img src="/assets/brand_logo.png" alt="Brand Logo" className="h-8 object-contain" />
+                <img src="/assets/brand_logo.png" alt="Brand Logo" className="h-12 w-auto object-contain" />
               </div>
               <button onClick={() => setDrawer(false)} aria-label="Close menu" className="text-on-chrome">
                 <X size={18} strokeWidth={1.75} />
