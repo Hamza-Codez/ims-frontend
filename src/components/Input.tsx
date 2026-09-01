@@ -16,8 +16,8 @@ export function Field({ label, children, hint }: { label: string; children: Reac
 const CONTROL =
   "h-9 w-full rounded-xs border border-hairline bg-bg px-2.5 text-sm text-ink placeholder:text-text-muted";
 
-import { useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import { Eye, EyeOff, ChevronDown } from "lucide-react";
 
 export function Input({ className = "", mono, type, ...rest }: InputHTMLAttributes<HTMLInputElement> & { mono?: boolean }) {
   const [showPassword, setShowPassword] = useState(false);
@@ -45,10 +45,68 @@ export function Input({ className = "", mono, type, ...rest }: InputHTMLAttribut
 
   return <input {...rest} type={type} className={[CONTROL, mono ? "data" : "", className].join(" ")} />;
 }
-export function Select({ className = "", children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
+export function Select({ className = "", children, value, onChange, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const options: { value: string, label: ReactNode }[] = [];
+  React.Children.forEach(children, (child) => {
+    if (React.isValidElement(child) && child.type === "option") {
+      const props = child.props as React.OptionHTMLAttributes<HTMLOptionElement>;
+      options.push({
+        value: (props.value as string) || "",
+        label: props.children as ReactNode,
+      });
+    }
+  });
+
+  const selectedOption = options.find((o) => o.value === value) || options[0];
+
+  const triggerChange = (newValue: string) => {
+    if (onChange) {
+      onChange({ target: { value: newValue } } as any);
+    }
+    setOpen(false);
+  };
+
   return (
-    <select {...rest} className={[CONTROL, className].join(" ")}>
-      {children}
-    </select>
+    <div className="relative w-full" ref={ref}>
+      <select value={value} onChange={onChange} className="hidden" {...rest}>
+        {children}
+      </select>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={[CONTROL, "flex items-center justify-between text-left", className].join(" ")}
+      >
+        <span className="truncate">{selectedOption?.label || "Select..."}</span>
+        <ChevronDown size={16} className="text-text-muted shrink-0 ml-2" />
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xs border border-hairline bg-bg shadow-dropdown">
+          {options.map((opt, idx) => (
+            <div
+              key={idx}
+              className={`cursor-pointer px-2.5 py-2 text-sm ${
+                opt.value === value ? "bg-accent-wash text-ink font-medium" : "text-ink hover:bg-accent hover:text-ink"
+              }`}
+              onClick={() => triggerChange(opt.value)}
+            >
+              {opt.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

@@ -103,7 +103,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex h-[100dvh] w-full overflow-hidden bg-bg">
       <aside className="hidden w-[248px] shrink-0 flex-col bg-chrome lg:flex">
         <div className="flex h-14 shrink-0 items-center gap-2 border-b border-chrome-hairline px-4">
-          <img src="/assets/brand_logo.png" alt="Brand Logo" className="h-12 w-auto object-contain" />
+          <img src="/assets/brand_logo.png" alt="Brand Logo" className="h-10 w-auto object-contain" />
         </div>
         <div className="flex-1 overflow-y-auto">{nav}</div>
         {userProfile}
