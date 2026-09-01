@@ -150,5 +150,7 @@ select option:focus,
 select option:active,
 select option:checked {
   background: var(--color-accent) !important;
+  background-color: var(--color-accent) !important;
   color: var(--color-ink) !important;
+  box-shadow: 0 0 10px 100px var(--color-accent) inset !important;
 }
