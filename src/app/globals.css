@@ -154,3 +154,28 @@ select option:checked {
   color: var(--color-ink) !important;
   box-shadow: 0 0 10px 100px var(--color-accent) inset !important;
 }
+
+/* Custom Scrollbar - Slim and Black */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-ink);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #000;
+}
+
+/* For Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink) transparent;
+}
