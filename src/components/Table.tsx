@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 export function TableShell({ children }: { children: ReactNode }) {
   // Tables go full width and scroll horizontally on mobile rather than dropping numeric columns.
   return (
-    <div className="w-full overflow-x-auto border border-hairline">
+    <div className="w-full border border-hairline">
       <table className="w-full border-collapse text-sm">{children}</table>
     </div>
   );
