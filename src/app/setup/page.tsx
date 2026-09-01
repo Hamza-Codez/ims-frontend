@@ -55,8 +55,7 @@ export default function SetupPage() {
       {/* Horizontal bar spanning full screen width */}
       <div className="absolute top-8 left-0 right-0 z-20 hidden lg:flex h-[72px] items-center px-12 bg-chrome shadow-xl">
         <div className="flex items-center gap-3">
-          <img src="/assets/brand_logo.jpg" alt="Brand Logo" className="h-10 object-contain" />
-          <span className="text-xl font-bold tracking-tight text-on-chrome uppercase">Stock Engine</span>
+          <img src="/assets/brand_logo.png" alt="Brand Logo" className="h-10 object-contain" />
         </div>
       </div>
 
@@ -65,8 +64,7 @@ export default function SetupPage() {
         <form onSubmit={submit} className="w-full max-w-sm mx-auto flex flex-col gap-5 [&_.eyebrow]:!text-ink/90">
           <div className="mb-2">
             <div className="flex items-center gap-2 mb-8 lg:hidden">
-              <img src="/assets/brand_logo.jpg" alt="Brand Logo" className="h-8 object-contain" />
-              <span className="text-lg font-bold tracking-tight text-ink uppercase">Stock Engine</span>
+              <img src="/assets/brand_logo.png" alt="Brand Logo" className="h-8 object-contain" />
             </div>
             <h1 className="text-2xl font-semibold leading-tight tracking-tight text-ink">Welcome to Stock Engine</h1>
             <p className="mt-1 text-sm text-ink/90">This is a fresh installation. Create your initial administrator account to get started.</p>

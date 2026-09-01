@@ -52,8 +52,7 @@ export default function RegisterPage() {
 
       <div className="absolute top-8 left-0 right-0 z-20 hidden lg:flex h-[72px] items-center px-12 bg-chrome shadow-xl">
         <div className="flex items-center gap-3">
-          <img src="/assets/brand_logo.jpg" alt="Brand Logo" className="h-10 object-contain" />
-          <span className="text-xl font-bold tracking-tight text-on-chrome uppercase">Stock Engine</span>
+          <img src="/assets/brand_logo.png" alt="Brand Logo" className="h-10 object-contain" />
         </div>
       </div>
 
@@ -64,8 +63,7 @@ export default function RegisterPage() {
         >
           <div className="mb-2">
             <div className="flex items-center gap-2 mb-8 lg:hidden">
-              <img src="/assets/brand_logo.jpg" alt="Brand Logo" className="h-8 object-contain" />
-              <span className="text-lg font-bold tracking-tight text-ink uppercase">Stock Engine</span>
+              <img src="/assets/brand_logo.png" alt="Brand Logo" className="h-8 object-contain" />
             </div>
             <h1 className="text-2xl font-semibold leading-tight tracking-tight text-ink">
               Create an account
